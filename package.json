@@ -64,7 +64,7 @@
     "@supabase/auth-helpers-nextjs": "latest",
     "pdfkit": "latest",
     "nodemailer": "latest",
-    "https:": "latest"
+    "https": "latest"
   },
   "devDependencies": {
     "@types/node": "^22",
