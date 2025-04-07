@@ -5,7 +5,8 @@ import { useSupabase } from "@/components/supabase-provider"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { TrendingUp } from "lucide-react"
+import { TrendingUp, ArrowRight } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 interface TrendingMoodsProps {
   onMoodSelect: (mood: string) => void
@@ -21,6 +22,7 @@ export default function TrendingMoods({ onMoodSelect }: TrendingMoodsProps) {
   const { supabase } = useSupabase()
   const [trendingMoods, setTrendingMoods] = useState<TrendingMood[]>([])
   const [loading, setLoading] = useState(true)
+  const router = useRouter()
 
   useEffect(() => {
     const fetchTrendingMoods = async () => {
@@ -85,6 +87,11 @@ export default function TrendingMoods({ onMoodSelect }: TrendingMoodsProps) {
               <span className="text-xs bg-muted px-1.5 py-0.5 rounded-full">{mood.count}</span>
             </Button>
           ))}
+
+          <Button variant="secondary" className="gap-2" onClick={() => router.push("/mood-quiz")}>
+            <span>Take Mood Quiz</span>
+            <ArrowRight className="h-4 w-4" />
+          </Button>
         </div>
       </CardContent>
     </Card>

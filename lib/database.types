@@ -57,10 +57,10 @@ export interface Database {
           created_at?: string
           name?: string
           description?: string
-          price?: string
+          price?: number
           image_url?: string
           moods?: string[]
-          inventory?: string
+          inventory?: number
           category?: string
         }
       }
@@ -247,5 +247,4 @@ export interface Database {
     }
   }
 }
-
 

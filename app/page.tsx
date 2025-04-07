@@ -6,7 +6,7 @@ import { useSupabase } from "@/components/supabase-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { motion } from "framer-motion"
-import { Camera, RefreshCw } from "lucide-react"
+import { Camera, RefreshCw, ArrowRight } from "lucide-react"
 import MoodCamera from "@/components/mood-camera"
 import { useToast } from "@/components/ui/use-toast"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -194,6 +194,15 @@ export default function Home() {
         </TabsContent>
 
         <TabsContent value="quiz" className="mt-0">
+          <div className="text-center mb-6">
+            <p className="text-muted-foreground mb-4">
+              Take our comprehensive mood quiz to get personalized product recommendations
+            </p>
+            <Button onClick={() => router.push("/mood-quiz")} variant="outline" className="gap-2">
+              <span>Take Full Quiz</span>
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          </div>
           <MoodQuiz onMoodDetected={handleMoodSelect} />
         </TabsContent>
       </Tabs>

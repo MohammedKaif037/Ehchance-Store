@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useSupabase } from "@/components/supabase-provider"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -38,6 +38,7 @@ export default function ProductReviews({ productId }: ProductReviewsProps) {
   const [rating, setRating] = useState(5)
   const [submitting, setSubmitting] = useState(false)
   const [helpfulReviews, setHelpfulReviews] = useState<string[]>([])
+  const [validationError, setValidationError] = useState("")
 
   useEffect(() => {
     const fetchReviews = async () => {
@@ -84,7 +85,22 @@ export default function ProductReviews({ productId }: ProductReviewsProps) {
     fetchReviews()
   }, [supabase, productId, session])
 
-  const submitReview = async () => {
+  const validateReview = () => {
+    if (!newReview.trim()) {
+      setValidationError("Please enter a review comment")
+      return false
+    }
+
+    if (newReview.length < 10) {
+      setValidationError("Review must be at least 10 characters long")
+      return false
+    }
+
+    setValidationError("")
+    return true
+  }
+
+  const submitReview = useCallback(async () => {
     if (!session) {
       toast({
         title: "Please sign in",
@@ -94,114 +110,165 @@ export default function ProductReviews({ productId }: ProductReviewsProps) {
       return
     }
 
-    if (!newReview.trim()) {
-      toast({
-        title: "Review required",
-        description: "Please enter a review comment",
-        variant: "destructive",
-      })
+    if (!validateReview()) {
       return
     }
 
     setSubmitting(true)
 
-    const { error } = await supabase.from("product_reviews").insert({
-      user_id: session.user.id,
-      product_id: productId,
-      rating,
-      comment: newReview,
-      helpful_count: 0,
-    })
+    try {
+      // Create a temporary ID for optimistic update
+      const tempId = crypto.randomUUID()
 
-    if (error) {
-      toast({
-        title: "Error submitting review",
-        description: error.message,
-        variant: "destructive",
-      })
-    } else {
+      // Optimistic update - add review to UI immediately
+      const optimisticReview: Review = {
+        id: tempId,
+        user_id: session.user.id,
+        product_id: productId,
+        rating,
+        comment: newReview,
+        created_at: new Date().toISOString(),
+        helpful_count: 0,
+        user: {
+          full_name: session.user.email?.split("@")[0] || "User",
+          avatar_url: "",
+        },
+        user_moods: ["Happy"],
+      }
+
+      setReviews([optimisticReview, ...reviews])
+      setNewReview("")
+      setRating(5)
+
+      // Submit to database
+      const { data, error } = await supabase
+        .from("product_reviews")
+        .insert({
+          user_id: session.user.id,
+          product_id: productId,
+          rating,
+          comment: newReview,
+          helpful_count: 0,
+        })
+        .select()
+        .single()
+
+      if (error) {
+        throw error
+      }
+
+      // Update the review with the real ID
+      setReviews((prevReviews) =>
+        prevReviews.map((review) => (review.id === tempId ? { ...review, id: data.id } : review)),
+      )
+
       toast({
         title: "Review submitted",
         description: "Thank you for your feedback!",
       })
+    } catch (error) {
+      console.error("Error submitting review:", error)
 
-      // Refresh reviews
-      const { data: newReviewData } = await supabase
-        .from("product_reviews")
-        .select(`
-          *,
-          user:profiles(full_name, avatar_url)
-        `)
-        .eq("product_id", productId)
-        .eq("user_id", session.user.id)
-        .single()
+      // Remove the optimistic review on error
+      setReviews((prevReviews) => prevReviews.filter((review) => review.user_id !== session.user.id))
 
-      if (newReviewData) {
-        const reviewWithMoods = {
-          ...newReviewData,
-          user_moods: ["Happy", "Energetic"].sort(() => 0.5 - Math.random()).slice(0, 1),
-        }
-
-        setReviews([reviewWithMoods, ...reviews])
-        setNewReview("")
-        setRating(5)
-      }
-    }
-
-    setSubmitting(false)
-  }
-
-  const markHelpful = async (reviewId: string) => {
-    if (!session) {
       toast({
-        title: "Please sign in",
-        description: "You need to be signed in to mark reviews as helpful",
+        title: "Error submitting review",
+        description: "There was an error submitting your review. Please try again.",
         variant: "destructive",
       })
-      return
+    } finally {
+      setSubmitting(false)
     }
+  }, [newReview, rating, productId, session, supabase, toast, reviews])
 
-    const isAlreadyHelpful = helpfulReviews.includes(reviewId)
+  const markHelpful = useCallback(
+    async (reviewId: string) => {
+      if (!session) {
+        toast({
+          title: "Please sign in",
+          description: "You need to be signed in to mark reviews as helpful",
+          variant: "destructive",
+        })
+        return
+      }
 
-    if (isAlreadyHelpful) {
-      // Remove helpful mark
-      await supabase.from("helpful_reviews").delete().eq("user_id", session.user.id).eq("review_id", reviewId)
+      const isAlreadyHelpful = helpfulReviews.includes(reviewId)
 
-      // Update review count
-      await supabase.rpc("decrement_helpful_count", {
-        review_id: reviewId,
-      })
+      // Optimistic update
+      if (isAlreadyHelpful) {
+        // Remove from helpful reviews
+        setHelpfulReviews(helpfulReviews.filter((id) => id !== reviewId))
 
-      setHelpfulReviews(helpfulReviews.filter((id) => id !== reviewId))
+        // Update review count
+        setReviews(
+          reviews.map((review) =>
+            review.id === reviewId ? { ...review, helpful_count: Math.max(0, review.helpful_count - 1) } : review,
+          ),
+        )
 
-      // Update local state
-      setReviews(
-        reviews.map((review) =>
-          review.id === reviewId ? { ...review, helpful_count: review.helpful_count - 1 } : review,
-        ),
-      )
-    } else {
-      // Add helpful mark
-      await supabase.from("helpful_reviews").insert({
-        user_id: session.user.id,
-        review_id: reviewId,
-      })
+        // Update in database
+        try {
+          // Remove helpful mark
+          await supabase.from("helpful_reviews").delete().eq("user_id", session.user.id).eq("review_id", reviewId)
 
-      // Update review count
-      await supabase.rpc("increment_helpful_count", {
-        review_id: reviewId,
-      })
+          // Update review count
+          await supabase.rpc("decrement_helpful_count", {
+            review_id: reviewId,
+          })
+        } catch (error) {
+          console.error("Error updating helpful status:", error)
 
-      setHelpfulReviews([...helpfulReviews, reviewId])
+          // Revert optimistic update on error
+          setHelpfulReviews([...helpfulReviews])
+          setReviews([...reviews])
 
-      // Update local state
-      setReviews(
-        reviews.map((review) =>
-          review.id === reviewId ? { ...review, helpful_count: review.helpful_count + 1 } : review,
-        ),
-      )
-    }
-  }
+          toast({
+            title: "Error updating review",
+            description: "There was an error updating the review status",
+            variant: "destructive",
+          })
+        }
+      } else {
+        // Add to helpful reviews
+        setHelpfulReviews([...helpfulReviews, reviewId])
+
+        // Update review count
+        setReviews(
+          reviews.map((review) =>
+            review.id === reviewId ? { ...review, helpful_count: review.helpful_count + 1 } : review,
+          ),
+        )
+
+        // Update in database
+        try {
+          // Add helpful mark
+          await supabase.from("helpful_reviews").insert({
+            user_id: session.user.id,
+            review_id: reviewId,
+          })
+
+          // Update review count
+          await supabase.rpc("increment_helpful_count", {
+            review_id: reviewId,
+          })
+        } catch (error) {
+          console.error("Error updating helpful status:", error)
+
+          // Revert optimistic update on error
+          setHelpfulReviews(helpfulReviews.filter((id) => id !== reviewId))
+          setReviews([...reviews])
+
+          toast({
+            title: "Error updating review",
+            description: "There was an error updating the review status",
+            variant: "destructive",
+          })
+        }
+      }
+    },
+    [helpfulReviews, reviews, session, supabase, toast],
+  )
 
   return (
     <div>
@@ -231,10 +298,14 @@ export default function ProductReviews({ productId }: ProductReviewsProps) {
                 <div className="text-sm font-medium mb-2">Your Review</div>
                 <Textarea
                   value={newReview}
-                  onChange={(e) => setNewReview(e.target.value)}
+                  onChange={(e) => {
+                    setNewReview(e.target.value)
+                    if (validationError) validateReview()
+                  }}
                   placeholder="Share your experience with this product..."
                   rows={4}
                 />
+                {validationError && <p className="text-sm text-red-500 mt-1">{validationError}</p>}
               </div>
 
               <Button onClick={submitReview} disabled={submitting}>
@@ -272,7 +343,7 @@ export default function ProductReviews({ productId }: ProductReviewsProps) {
                 <div className="flex flex-col md:flex-row gap-4">
                   <div className="flex flex-col items-center md:items-start gap-2">
                     <Avatar className="h-10 w-10">
-                      <AvatarImage src={review.user.avatar_url || "/placeholder-user.jpg"} />
+                      <AvatarImage src={review.user.avatar_url || "/placeholder.svg?text=User"} />
                       <AvatarFallback>{review.user.full_name?.charAt(0) || "U"}</AvatarFallback>
                     </Avatar>
                     <div className="text-sm font-medium">{review.user.full_name}</div>

@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { useSupabase } from "@/components/supabase-provider"
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { ShoppingCart, Heart, Share2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { useCartStore } from "@/lib/stores/cart-store"
 import type { Database } from "@/lib/database.types"
 
 type Product = Database["public"]["Tables"]["products"]["Row"]
@@ -22,72 +23,80 @@ export default function ProductCard({ product }: { product: Product }) {
   const [isAddingToCart, setIsAddingToCart] = useState(false)
   const [isFavorite, setIsFavorite] = useState(false)
 
-  const handleAddToCart = async (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
+  // Use the cart store for optimistic updates
+  const { addToCart } = useCartStore()
 
-    if (!session) {
-      toast({
-        title: "Please sign in",
-        description: "You need to be signed in to add items to your cart",
-        variant: "destructive",
-      })
-      return
-    }
+  // Memoize the addToCart handler to prevent unnecessary re-renders
+  const handleAddToCart = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
 
-    setIsAddingToCart(true)
-
-    // Check if product is already in cart
-    const { data: existingItem } = await supabase
-      .from("cart_items")
-      .select("*")
-      .eq("user_id", session.user.id)
-      .eq("product_id", product.id)
-      .single()
-
-    if (existingItem) {
-      // Update quantity
-      const { error } = await supabase
-        .from("cart_items")
-        .update({ quantity: existingItem.quantity + 1 })
-        .eq("id", existingItem.id)
-
-      if (error) {
+      if (!session) {
         toast({
-          title: "Error updating cart",
-          description: error.message,
+          title: "Please sign in",
+          description: "You need to be signed in to add items to your cart",
           variant: "destructive",
         })
-      } else {
-        toast({
-          title: "Cart updated",
-          description: `${product.name} quantity increased`,
-        })
+        return
       }
-    } else {
-      // Add new item
-      const { error } = await supabase.from("cart_items").insert({
-        user_id: session.user.id,
-        product_id: product.id,
-        quantity: 1,
-      })
 
-      if (error) {
-        toast({
-          title: "Error adding to cart",
-          description: error.message,
-          variant: "destructive",
+      // Prevent multiple rapid clicks
+      if (isAddingToCart) return
+
+      setIsAddingToCart(true)
+
+      try {
+        // Optimistic update - update UI immediately
+        addToCart({
+          id: crypto.randomUUID(),
+          user_id: session.user.id,
+          product_id: product.id,
+          quantity: 1,
+          created_at: new Date().toISOString(),
+          product: product,
         })
-      } else {
+
         toast({
           title: "Added to cart",
           description: `${product.name} added to your cart`,
         })
-      }
-    }
 
-    setIsAddingToCart(false)
-  }
+        // Check if product is already in cart
+        const { data: existingItem } = await supabase
+          .from("cart_items")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .eq("product_id", product.id)
+          .single()
+
+        if (existingItem) {
+          // Update quantity
+          await supabase
+            .from("cart_items")
+            .update({ quantity: existingItem.quantity + 1 })
+            .eq("id", existingItem.id)
+        } else {
+          // Add new item
+          await supabase.from("cart_items").insert({
+            user_id: session.user.id,
+            product_id: product.id,
+            quantity: 1,
+          })
+        }
+      } catch (error) {
+        console.error("Error adding to cart:", error)
+        toast({
+          title: "Error adding to cart",
+          description: "There was an error adding this item to your cart",
+          variant: "destructive",
+        })
+      } finally {
+        setIsAddingToCart(false)
+      }
+    },
+    [product, session, supabase, toast, isAddingToCart, addToCart],
+  )
 
   const toggleFavorite = async (e: React.MouseEvent) => {
     e.preventDefault()

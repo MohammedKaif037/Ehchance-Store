@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, Suspense } from "react"
+import { useEffect, useState, Suspense, useCallback } from "react"
 import Image from "next/image"
 import { useParams, useRouter } from "next/navigation"
 import { useSupabase } from "@/components/supabase-provider"
@@ -14,6 +14,7 @@ import EmojiReactions from "@/components/emoji-reactions"
 import ProductReviews from "@/components/product-reviews"
 import RelatedProducts from "@/components/related-products"
 import ProductAR from "@/components/product-ar"
+import { useCartStore } from "@/lib/stores/cart-store"
 import type { Database } from "@/lib/database.types"
 
 type Product = Database["public"]["Tables"]["products"]["Row"]
@@ -23,6 +24,7 @@ export default function ProductPage() {
   const router = useRouter()
   const { supabase, session } = useSupabase()
   const { toast } = useToast()
+  const { addToCart } = useCartStore()
 
   const [product, setProduct] = useState<Product | null>(null)
   const [loading, setLoading] = useState(true)
@@ -69,7 +71,8 @@ export default function ProductPage() {
     fetchProduct()
   }, [supabase, params.id, router, session])
 
-  const handleAddToCart = async () => {
+  // Memoize the addToCart handler to prevent unnecessary re-renders
+  const handleAddToCart = useCallback(async () => {
     if (!session) {
       toast({
         title: "Please sign in",
@@ -81,59 +84,60 @@ export default function ProductPage() {
 
     if (!product) return
 
+    // Prevent multiple rapid clicks
+    if (isAddingToCart) return
+
     setIsAddingToCart(true)
 
-    // Check if product is already in cart
-    const { data: existingItem } = await supabase
-      .from("cart_items")
-      .select("*")
-      .eq("user_id", session.user.id)
-      .eq("product_id", product.id)
-      .single()
-
-    if (existingItem) {
-      // Update quantity
-      const { error } = await supabase
-        .from("cart_items")
-        .update({ quantity: existingItem.quantity + quantity })
-        .eq("id", existingItem.id)
-
-      if (error) {
-        toast({
-          title: "Error updating cart",
-          description: error.message,
-          variant: "destructive",
-        })
-      } else {
-        toast({
-          title: "Cart updated",
-          description: `${product.name} quantity increased by ${quantity}`,
-        })
-      }
-    } else {
-      // Add new item
-      const { error } = await supabase.from("cart_items").insert({
+    try {
+      // Optimistic update - update UI immediately
+      addToCart({
+        id: crypto.randomUUID(),
         user_id: session.user.id,
         product_id: product.id,
-        quantity,
+        quantity: quantity,
+        created_at: new Date().toISOString(),
+        product: product,
       })
 
-      if (error) {
-        toast({
-          title: "Error adding to cart",
-          description: error.message,
-          variant: "destructive",
-        })
+      toast({
+        title: "Added to cart",
+        description: `${product.name} added to your cart`,
+      })
+
+      // Check if product is already in cart
+      const { data: existingItem } = await supabase
+        .from("cart_items")
+        .select("*")
+        .eq("user_id", session.user.id)
+        .eq("product_id", product.id)
+        .single()
+
+      if (existingItem) {
+        // Update quantity
+        await supabase
+          .from("cart_items")
+          .update({ quantity: existingItem.quantity + quantity })
+          .eq("id", existingItem.id)
       } else {
-        toast({
-          title: "Added to cart",
-          description: `${product.name} added to your cart`,
+        // Add new item
+        await supabase.from("cart_items").insert({
+          user_id: session.user.id,
+          product_id: product.id,
+          quantity,
         })
       }
+    } catch (error) {
+      console.error("Error adding to cart:", error)
+      toast({
+        title: "Error adding to cart",
+        description: "There was an error adding this item to your cart",
+        variant: "destructive",
+      })
+    } finally {
+      setIsAddingToCart(false)
     }
-
-    setIsAddingToCart(false)
-  }
+  }, [product, quantity, session, supabase, toast, isAddingToCart, addToCart])
 
   const toggleFavorite = async () => {
     if (!session) {
@@ -202,6 +206,11 @@ export default function ProductPage() {
 
   const prevImage = () => {
     setActiveImageIndex((activeImageIndex - 1 + productImages.length) % productImages.length)
+  }
+
+  const handleBuyNow = () => {
+    handleAddToCart()
+    router.push("/checkout")
   }
 
   if (loading) {
@@ -336,6 +345,12 @@ export default function ProductPage() {
               Add to Cart
             </Button>
 
+            <Button variant="secondary" className="flex-1" size="lg" onClick={handleBuyNow} disabled={isAddingToCart}>
+              Buy Now
+            </Button>
+          </div>
+
+          <div className="flex gap-4">
             <Button variant="outline" size="icon" className="h-12 w-12" onClick={toggleFavorite}>
               <Heart className={`h-5 w-5 ${isFavorite ? "fill-red-500 text-red-500" : ""}`} />
             </Button>

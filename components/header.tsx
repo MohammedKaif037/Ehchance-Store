@@ -71,6 +71,12 @@ export default function Header() {
           >
             All Products
           </Link>
+          <Link
+            href="/mood-quiz"
+            className={`text-sm font-medium ${pathname === "/mood-quiz" ? "text-primary" : "text-muted-foreground"} transition-colors hover:text-primary`}
+          >
+            Mood Quiz
+          </Link>
         </nav>
         <div className="flex items-center gap-4">
           {session ? (
