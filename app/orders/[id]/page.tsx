@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
-import { CheckCircle, FileText, ArrowLeft } from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
+import { CheckCircle, FileText, ArrowLeft, Download } from "lucide-react"
 
 type Order = {
   id: string
@@ -29,9 +30,11 @@ export default function OrderPage() {
   const params = useParams()
   const router = useRouter()
   const { supabase, session } = useSupabase()
+  const { toast } = useToast()
 
   const [order, setOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)
+  const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false)
 
   useEffect(() => {
     const fetchOrder = async () => {
@@ -89,18 +92,79 @@ export default function OrderPage() {
     fetchOrder()
   }, [supabase, session, params.id, router])
 
-  const handleDownloadInvoice = async () => {
+  const handleSendInvoice = async () => {
     if (!order) return
+
+    setIsGeneratingInvoice(true)
 
     try {
       await supabase.functions.invoke("generate-invoice", {
         body: { orderId: order.id },
       })
 
-      alert("Invoice has been sent to your email!")
+      toast({
+        title: "Invoice sent",
+        description: "Invoice has been sent to your email!",
+      })
     } catch (error) {
       console.error("Error generating invoice:", error)
-      alert("Failed to generate invoice. Please try again later.")
+      toast({
+        title: "Error",
+        description: "Failed to generate invoice. Please try again later.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsGeneratingInvoice(false)
+    }
+  }
+
+  const handleDownloadInvoice = async () => {
+    if (!order) return
+
+    setIsGeneratingInvoice(true)
+
+    try {
+      // Create a download link
+      const response = await fetch(`/api/download-invoice?orderId=${order.id}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to generate invoice")
+      }
+
+      // Get the blob from the response
+      const blob = await response.blob()
+
+      // Create a download link and trigger download
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.style.display = "none"
+      a.href = url
+      a.download = `invoice-${order.id.slice(0, 8)}.pdf`
+      document.body.appendChild(a)
+      a.click()
+
+      // Clean up
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+
+      toast({
+        title: "Invoice downloaded",
+        description: "Your invoice has been downloaded successfully!",
+      })
+    } catch (error) {
+      console.error("Error downloading invoice:", error)
+      toast({
+        title: "Error",
+        description: "Failed to download invoice. Please try again later.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsGeneratingInvoice(false)
     }
   }
 
@@ -203,14 +267,18 @@ export default function OrderPage() {
           </CardContent>
         </Card>
 
-        <div className="flex justify-center">
-          <Button onClick={handleDownloadInvoice} className="gap-2">
+        <div className="flex flex-col sm:flex-row justify-center gap-4">
+          <Button onClick={handleSendInvoice} className="gap-2" disabled={isGeneratingInvoice}>
             <FileText className="h-4 w-4" />
-            Send Invoice to Email
+            {isGeneratingInvoice ? "Sending..." : "Send Invoice to Email"}
+          </Button>
+
+          <Button onClick={handleDownloadInvoice} variant="outline" className="gap-2" disabled={isGeneratingInvoice}>
+            <Download className="h-4 w-4" />
+            {isGeneratingInvoice ? "Generating..." : "Download Invoice"}
           </Button>
         </div>
       </div>
     </div>
   )
 }
-
