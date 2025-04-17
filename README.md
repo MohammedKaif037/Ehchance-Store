@@ -1,4 +1,4 @@
-# Mood Picker Store
+# VibeCart 
 
 ![Mood Picker Store](https://placeholder.svg?height=300&width=600&text=Mood+Picker+Store)
 
