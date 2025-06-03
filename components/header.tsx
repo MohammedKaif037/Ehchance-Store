@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { ShoppingCart, User } from "lucide-react"
@@ -79,6 +80,7 @@ export default function Header() {
           </Link>
         </nav>
         <div className="flex items-center gap-4">
+          <ThemeToggle />
           {session ? (
             <>
               <Link href="/cart" className="relative">
