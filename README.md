@@ -118,7 +118,7 @@ To set up the database, you can use the Supabase web interface or SQL migrations
 
 ## 📁 Project Structure
 
-\`\`\`
+```
 mood-picker-store/
 ├── app/                    # Next.js App Router pages
 │   ├── api/                # API routes
@@ -154,7 +154,7 @@ mood-picker-store/
 ├── package.json            # Project dependencies
 ├── tailwind.config.ts      # Tailwind CSS configuration
 └── tsconfig.json           # TypeScript configuration
-\`\`\`
+```
 
 ## 🔄 API Endpoints
 
